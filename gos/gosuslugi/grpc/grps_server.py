@@ -1,17 +1,13 @@
+import socket
+from concurrent import futures
 from contextlib import closing
+import mysql.connector as connector
 
-import grpc, signal
-from django.db.models.expressions import connector
+import grpc
 
 import not_pb2
 import not_pb2_grpc
-from concurrent import futures
-import socket
 
-
-def signal_handler(signal, frame):
-    global exit
-    exit = False
 
 class send_notificationsServicer(not_pb2_grpc.send_notificationsServicer):
     def sendNotifications(self, request, context):
@@ -20,27 +16,16 @@ class send_notificationsServicer(not_pb2_grpc.send_notificationsServicer):
             with closing(connector.connect(user='root', password="1234",
                                            host='127.0.0.1', database='gos1')) as connection:
                 with connection.cursor(dictionary=True) as cursor:
-                    signal.signal(signal.SIGINT, signal_handler)
-                    insert_request = 'UPDATE zayavki_polz SET status=%s where id=%s'
-                    # cursor.execute(insert_request, request.data)
-                    data = request.data
-                    print(request.data)
-                    response = stub.sendNotifications(not_pb2.notifications(data=data))
-                    # connection.commit()
-                    # response = stub.sendNotifications(not_pb2.notifications(data=data_to_insert))
-        num = 0
+                    for i in request.data:
+                        insert_request = f"UPDATE zayavki_polz SET status='{i.status}' where id={i.id}"
+                        select_request = f"select username from polzovateli where id={i.id_user}"
+                    cursor.execute(insert_request)
+                    connection.commit()
+                    cursor.execute(select_request)
+                    data = cursor.fetchall()
 
-        message = b'['
-
-        for item in request.data:
-            num += 1
-            message += b'{ "id": ' + bytes(str(item.id), encoding='utf-8') + \
-                       b', "id_user": ' + bytes(str(item.id_user), encoding='utf-8') + \
-                       b', "id_service": ' + bytes(str(item.id_service), encoding='utf-8') + \
-                       b', "status": ' + bytes(str(item.status), encoding='utf-8') + b'}, '
-
-        message = message[: -2]
-        message += b']'
+        message = b'[' + b'{"username": "' + bytes(data[0]['username'], encoding='utf-8')
+        message += b'"}' + b']'
 
         print(message)
 
@@ -54,7 +39,7 @@ class send_notificationsServicer(not_pb2_grpc.send_notificationsServicer):
 def main():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     not_pb2_grpc.add_send_notificationsServicer_to_server(send_notificationsServicer(), server=server)
-    server.add_insecure_port('[::]:7000')
+    server.add_insecure_port('[::]:7010')
     server.start()
     print('server started')
     server.wait_for_termination()
